@@ -1,5 +1,5 @@
-﻿using System.Runtime.ConstrainedExecution;
-using Microsoft.Win32.SafeHandles;
+﻿using Microsoft.Win32.SafeHandles;
+using System.Runtime.ConstrainedExecution;
 
 namespace SevenZipExtractor
 {
@@ -14,7 +14,7 @@ namespace SevenZipExtractor
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         protected override bool ReleaseHandle()
         {
-            return Kernel32Dll.FreeLibrary(this.handle);
+            return Kernel32Dll.FreeLibrary(handle);
         }
     }
 }

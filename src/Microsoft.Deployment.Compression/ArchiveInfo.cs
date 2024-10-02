@@ -1,8 +1,8 @@
 // Copyright (c) .NET Foundation and contributors. All rights reserved. Licensed under the Microsoft Reciprocal License. See LICENSE.TXT file in the project root for full license information.
 
 using System.Globalization;
-using System.Text.RegularExpressions;
 using System.Runtime.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Microsoft.Deployment.Compression
 {
@@ -166,7 +166,7 @@ namespace Microsoft.Deployment.Compression
         /// containing information about a file in the archive.</returns>
         public IList<ArchiveFileInfo> GetFiles()
         {
-            return InternalGetFiles((Predicate<string>)null);
+            return InternalGetFiles(null);
         }
 
         /// <summary>
@@ -253,9 +253,9 @@ namespace Microsoft.Deployment.Compression
             }
 
             UnpackFiles(
-                new string[] { fileName },
+                [fileName],
                 null,
-                new string[] { destFileName });
+                [destFileName]);
         }
 
         /// <summary>
@@ -570,7 +570,7 @@ namespace Microsoft.Deployment.Compression
         }
 
         public void PackFiles(
-            string sourceDirectory,
+            string? sourceDirectory,
             IList<(Stream, FileAttributes, DateTime)> sourceFileNames,
             IList<string> fileNames,
             CompressionLevel compLevel,

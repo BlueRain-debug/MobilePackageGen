@@ -1,8 +1,8 @@
 // Copyright (c) .NET Foundation and contributors. All rights reserved. Licensed under the Microsoft Reciprocal License. See LICENSE.TXT file in the project root for full license information.
 
-using System.Text;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Microsoft.Deployment.Compression.Cab
 {
@@ -373,8 +373,8 @@ namespace Microsoft.Deployment.Compression.Cab
                 }
 
                 id = fdici.setID;
-                cabFolderCount = (int)fdici.cFolders;
-                fileCount = (int)fdici.cFiles;
+                cabFolderCount = fdici.cFolders;
+                fileCount = fdici.cFiles;
                 return isCabinet;
             }
             finally
@@ -410,7 +410,7 @@ namespace Microsoft.Deployment.Compression.Cab
                             {
                                 FileAttributes attributes = (FileAttributes)notification.attribs &
                                     (FileAttributes.Archive | FileAttributes.Hidden | FileAttributes.ReadOnly | FileAttributes.System);
-                                if (attributes == (FileAttributes)0)
+                                if (attributes == 0)
                                 {
                                     attributes = FileAttributes.Normal;
                                 }
@@ -460,7 +460,7 @@ namespace Microsoft.Deployment.Compression.Cab
                 case NativeMethods.FDI.NOTIFICATIONTYPE.NEXT_CABINET:
                     {
                         string nextCab = Marshal.PtrToStringAnsi(notification.psz1);
-                        CabNumbers[nextCab] = (short)notification.iCabinet;
+                        CabNumbers[nextCab] = notification.iCabinet;
                         NextCabinetName = "?" + NextCabinetName;
                         return 0;  // Continue
                     }
@@ -533,7 +533,7 @@ namespace Microsoft.Deployment.Compression.Cab
 
             FileAttributes attributes = (FileAttributes)notification.attribs &
                 (FileAttributes.Archive | FileAttributes.Hidden | FileAttributes.ReadOnly | FileAttributes.System);
-            if (attributes == (FileAttributes)0)
+            if (attributes == 0)
             {
                 attributes = FileAttributes.Normal;
             }

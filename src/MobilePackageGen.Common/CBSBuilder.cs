@@ -1,6 +1,7 @@
 ﻿using DiscUtils;
-using Microsoft.Deployment.Compression.Cab;
 using Microsoft.Deployment.Compression;
+using Microsoft.Deployment.Compression.Cab;
+using System.Runtime.InteropServices;
 using System.Xml.Serialization;
 
 namespace MobilePackageGen
@@ -12,14 +13,14 @@ namespace MobilePackageGen
             return $"{cbs.AssemblyIdentity.Name}~{cbs.AssemblyIdentity.PublicKeyToken}~{cbs.AssemblyIdentity.ProcessorArchitecture}~{(cbs.AssemblyIdentity.Language == "neutral" ? "" : cbs.AssemblyIdentity.Language)}~{cbs.AssemblyIdentity.Version}";
         }
 
-        private static List<CabinetFileInfo> GetCabinetFileInfoForCbsPackage(XmlMum.Assembly cbs, IPartition partition, List<IDisk> disks)
+        private static IEnumerable<CabinetFileInfo> GetCabinetFileInfoForCbsPackage(XmlMum.Assembly cbs, IPartition partition, IEnumerable<IDisk> disks)
         {
             List<CabinetFileInfo> fileMappings = [];
 
-            IFileSystem fileSystem = partition.FileSystem;
+            IFileSystem fileSystem = partition.FileSystem!;
 
-            string packages_path = @"Windows\servicing\Packages";
-            string winsxs_manifests_path = @"Windows\WinSxS\Manifests";
+            string WindowsServicingPackagesFolderPath = @"Windows\servicing\Packages";
+            string WindowsSideBySideManifestsFolderPath = @"Windows\WinSxS\Manifests";
 
             string packageName = GetCBSComponentName(cbs);
 
@@ -27,246 +28,258 @@ namespace MobilePackageGen
 
             uint oldPercentage = uint.MaxValue;
 
-            foreach (XmlMum.File packageFile in cbs.Package.CustomInformation.File)
+            if (cbs.Package.CustomInformation != null)
             {
-                uint percentage = (uint)Math.Floor((double)i++ * 50 / cbs.Package.CustomInformation.File.Count);
-
-                if (percentage != oldPercentage)
+                foreach (XmlMum.File packageFile in cbs.Package.CustomInformation.File)
                 {
-                    oldPercentage = percentage;
-                    string progressBarString = GetDISMLikeProgressBar(percentage);
-                    Console.Write($"\r{progressBarString}");
-                }
+                    uint percentage = (uint)Math.Floor((double)i++ * 50 / cbs.Package.CustomInformation.File.Count);
 
-                // File names in cab files are all lower case
-                string fileName = packageFile.Name.ToLower();
-
-                // Prevent getting files from root of this program
-                if (fileName.StartsWith("\\"))
-                {
-                    fileName = fileName[1..];
-                }
-
-                // If a manifest file is without any path, it must be retrieved from the manifest directory
-                if (!fileName.Contains('\\') && fileName.EndsWith(".manifest"))
-                {
-                    fileName = Path.Combine(winsxs_manifests_path, fileName);
-                }
-
-                // We now replace macros with known values
-                string normalized = fileName.Replace("$(runtime.bootdrive)", "")
-                                                    .Replace("$(runtime.systemroot)", "windows")
-                                                    .Replace("$(runtime.fonts)", @"windows\fonts")
-                                                    .Replace("$(runtime.inf)", @"windows\inf")
-                                                    .Replace("$(runtime.system)", @"windows\system")
-                                                    .Replace("$(runtime.system32)", @"windows\system32")
-                                                    .Replace("$(runtime.wbem)", @"windows\system32\wbem")
-                                                    .Replace("$(runtime.drivers)", @"windows\system32\drivers");
-
-                // Prevent getting files from root of this program
-                if (normalized.StartsWith("\\"))
-                {
-                    normalized = normalized[1..];
-                }
-
-                // The package name is renamed to "update" in cab files, fix this
-                if (normalized.EndsWith("update.mum"))
-                {
-                    normalized = normalized.Replace("update.mum", $"{packageName}.mum");
-
-                    if (!normalized.Contains('\\'))
+                    if (percentage != oldPercentage)
                     {
-                        normalized = Path.Combine(packages_path, normalized);
+                        oldPercentage = percentage;
+                        string progressBarString = Logging.GetDISMLikeProgressBar(percentage);
+
+                        Logging.Log(progressBarString, returnLine: false);
                     }
-                }
 
-                // Same here for the catalog
-                if (normalized.EndsWith("update.cat"))
-                {
-                    normalized = normalized.Replace("update.cat", $"{packageName}.cat");
+                    // File names in cab files are all lower case
+                    string fileName = packageFile.Name.ToLower();
 
-                    if (!normalized.Contains('\\'))
+                    // Prevent getting files from root of this program
+                    if (fileName.StartsWith('\\'))
                     {
-                        normalized = Path.Combine(packages_path, normalized);
+                        fileName = fileName[1..];
                     }
-                }
 
-                // For specific wow sub architecures, we want to fetch the files from the right place on the file system
-                string architecture = cbs.Package.Update?.Component?.AssemblyIdentity?.ProcessorArchitecture;
-
-                if (normalized.StartsWith(@"windows\system32") && architecture?.Contains("arm64.arm") == true)
-                {
-                    string newpath = normalized.Replace(@"windows\system32", @"windows\sysarm32");
-                    if (fileSystem.FileExists(newpath))
+                    // If a manifest file is without any path, it must be retrieved from the manifest directory
+                    if (!fileName.Contains('\\') && fileName.EndsWith(".manifest"))
                     {
-                        normalized = newpath;
+                        fileName = Path.Combine(WindowsSideBySideManifestsFolderPath, fileName);
                     }
-                }
 
-                // Prevent getting files from root of this program
-                if (normalized.StartsWith("\\"))
-                {
-                    normalized = normalized[1..];
-                }
+                    // We now replace macros with known values
+                    string normalized = fileName.Replace("$(runtime.bootdrive)", "")
+                                                        .Replace("$(runtime.systemroot)", "windows")
+                                                        .Replace("$(runtime.fonts)", @"windows\fonts")
+                                                        .Replace("$(runtime.inf)", @"windows\inf")
+                                                        .Replace("$(runtime.system)", @"windows\system")
+                                                        .Replace("$(runtime.system32)", @"windows\system32")
+                                                        .Replace("$(runtime.wbem)", @"windows\system32\wbem")
+                                                        .Replace("$(runtime.drivers)", @"windows\system32\drivers")
+                                                        .Replace("$(runtime.programfiles)", "Program Files");
+                                                        .Replace("$(runtime.programdata)", "ProgramData");
+                                                        .Replace("$(runtime.startmenu)", @"ProgramData\Microsoft\Windows\Start Menu");
 
-                if (!fileSystem.Exists(normalized) && normalized.EndsWith(".manifest"))
-                {
-                    normalized = Path.Combine(winsxs_manifests_path, normalized.Split("\\")[^1]);
-                }
-
-                CabinetFileInfo cabinetFileInfo = null;
-
-                // If we end in bin, and the package is marked binary partition, this is a partition on one of the device disks, retrieve it
-                if (normalized.EndsWith(".bin") && cbs.Package.BinaryPartition.ToLower() == "true")
-                {
-                    foreach (IDisk disk in disks)
+                    if (cbs.AssemblyIdentity.ProcessorArchitecture.Equals("arm64.arm"))
                     {
-                        bool done = false;
+                        normalized = fileName.Replace("$(runtime.bootdrive)", "")
+                                                        .Replace("$(runtime.systemroot)", "windows")
+                                                        .Replace("$(runtime.fonts)", @"windows\fonts")
+                                                        .Replace("$(runtime.inf)", @"windows\inf")
+                                                        .Replace("$(runtime.system)", @"windows\system")
+                                                        .Replace("$(runtime.system32)", @"windows\sysarm32")
+                                                        .Replace("$(runtime.wbem)", @"windows\sysarm32\wbem")
+                                                        .Replace("$(runtime.drivers)", @"windows\sysarm32\drivers")
+                                                        .Replace("$(runtime.programfiles)", "Program Files (Arm)");
+                    }
 
-                        foreach (IPartition diskPartition in disk.Partitions)
+                    if (cbs.AssemblyIdentity.ProcessorArchitecture.Equals("arm64.x86"))
+                    {
+                        normalized = fileName.Replace("$(runtime.bootdrive)", "")
+                                                        .Replace("$(runtime.systemroot)", "windows")
+                                                        .Replace("$(runtime.fonts)", @"windows\fonts")
+                                                        .Replace("$(runtime.inf)", @"windows\inf")
+                                                        .Replace("$(runtime.system)", @"windows\system")
+                                                        .Replace("$(runtime.system32)", @"windows\syswow64")
+                                                        .Replace("$(runtime.wbem)", @"windows\syswow64\wbem")
+                                                        .Replace("$(runtime.drivers)", @"windows\syswow64\drivers")
+                                                        .Replace("$(runtime.programfiles)", "Program Files (x86)");
+                    }
+
+                    // Prevent getting files from root of this program
+                    if (normalized.StartsWith('\\'))
+                    {
+                        normalized = normalized[1..];
+                    }
+
+                    // The package name is renamed to "update" in cab files, fix this
+                    if (normalized.EndsWith("update.mum"))
+                    {
+                        normalized = normalized.Replace("update.mum", $"{packageName}.mum");
+
+                        if (!normalized.Contains('\\'))
                         {
-                            if (diskPartition.Name.Equals(cbs.Package.TargetPartition, StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                done = true;
-
-                                cabinetFileInfo = new CabinetFileInfo()
-                                {
-                                    FileName = packageFile.Cabpath,
-                                    FileStream = new Substream(diskPartition.Stream, long.Parse(packageFile.Size)),
-                                    Attributes = FileAttributes.Normal,
-                                    DateTime = DateTime.Now
-                                };
-                                break;
-                            }
-                        }
-
-                        if (done)
-                        {
-                            break;
+                            normalized = Path.Combine(WindowsServicingPackagesFolderPath, normalized);
                         }
                     }
-                }
-                else
-                {
-                    if (!fileSystem.FileExists(normalized))
+
+                    // Same here for the catalog
+                    if (normalized.EndsWith("update.cat"))
                     {
-                        string[] partitionNamesWithLinks = ["data", "efiesp", "osdata", "dpp", "mmos"];
+                        normalized = normalized.Replace("update.cat", $"{packageName}.cat");
 
-                        foreach (string partitionNameWithLink in partitionNamesWithLinks)
+                        if (!normalized.Contains('\\'))
                         {
-                            if (normalized.StartsWith(partitionNameWithLink + "\\", StringComparison.InvariantCultureIgnoreCase))
+                            normalized = Path.Combine(WindowsServicingPackagesFolderPath, normalized);
+                        }
+                    }
+
+                    // For specific wow sub architecures, we want to fetch the files from the right place on the file system
+                    string architecture = cbs.Package.Update?.Component?.AssemblyIdentity?.ProcessorArchitecture!;
+
+                    if (normalized.StartsWith(@"windows\system32") && architecture?.Contains("arm64.arm") == true)
+                    {
+                        string newpath = normalized.Replace(@"windows\system32", @"windows\sysarm32");
+                        if (fileSystem.FileExists(newpath))
+                        {
+                            normalized = newpath;
+                        }
+                    }
+
+                    // Prevent getting files from root of this program
+                    if (normalized.StartsWith('\\'))
+                    {
+                        normalized = normalized[1..];
+                    }
+
+                    if (!fileSystem.Exists(normalized) && normalized.EndsWith(".manifest"))
+                    {
+                        normalized = Path.Combine(WindowsSideBySideManifestsFolderPath, normalized.Split('\\')[^1]);
+                    }
+
+                    CabinetFileInfo? cabinetFileInfo = null;
+
+                    // If we end in bin, and the package is marked binary partition, this is a partition on one of the device disks, retrieve it
+                    if (normalized.EndsWith(".bin") && cbs.Package.BinaryPartition.Equals("true", StringComparison.CurrentCultureIgnoreCase))
+                    {
+                        foreach (IDisk disk in disks)
+                        {
+                            bool done = false;
+
+                            foreach (IPartition diskPartition in disk.Partitions)
                             {
-                                foreach (IDisk disk in disks)
+                                if (diskPartition.Name.Split("\0")[0].Equals(cbs.Package.TargetPartition, StringComparison.InvariantCultureIgnoreCase))
                                 {
-                                    bool done = false;
+                                    done = true;
 
-                                    foreach (IPartition diskPartition in disk.Partitions)
+                                    diskPartition.Stream.Seek(0, SeekOrigin.Begin);
+
+                                    cabinetFileInfo = new CabinetFileInfo()
                                     {
-                                        if (diskPartition.Name.Equals(partitionNameWithLink, StringComparison.InvariantCultureIgnoreCase))
-                                        {
-                                            done = true;
-
-                                            IFileSystem? fileSystemData = diskPartition.FileSystem;
-
-                                            if (fileSystemData == null)
-                                            {
-                                                break;
-                                            }
-
-                                            cabinetFileInfo = new CabinetFileInfo()
-                                            {
-                                                FileName = packageFile.Cabpath,
-                                                FileStream = fileSystemData.OpenFile(normalized[5..], FileMode.Open, FileAccess.Read),
-                                                Attributes = fileSystemData.GetAttributes(normalized[5..]) & ~FileAttributes.ReparsePoint,
-                                                DateTime = fileSystemData.GetLastWriteTime(normalized[5..])
-                                            };
-
-                                            break;
-                                        }
-                                    }
-
-                                    if (done)
-                                    {
-                                        break;
-                                    }
+                                        FileName = packageFile.Cabpath,
+                                        FileStream = new Substream(diskPartition.Stream, long.Parse(packageFile.Size)),
+                                        Attributes = FileAttributes.Normal,
+                                        DateTime = DateTime.Now
+                                    };
+                                    break;
                                 }
+                            }
 
+                            if (done)
+                            {
                                 break;
                             }
                         }
                     }
                     else
                     {
-                        cabinetFileInfo = new CabinetFileInfo()
+                        if (!fileSystem.FileExists(normalized))
                         {
-                            FileName = packageFile.Cabpath,
-                            FileStream = fileSystem.OpenFile(normalized, FileMode.Open, FileAccess.Read),
-                            Attributes = fileSystem.GetAttributes(normalized) & ~FileAttributes.ReparsePoint,
-                            DateTime = fileSystem.GetLastWriteTime(normalized)
-                        };
-                    }
-                }
+                            string[] partitionNamesWithLinks = ["data", "efiesp", "osdata", "dpp", "mmos"];
 
-                if (cabinetFileInfo != null)
-                {
-                    fileMappings.Add(cabinetFileInfo);
-                }
-                else
-                {
-                    Console.WriteLine($"\rError: File not found! {normalized}\n");
-                    //throw new FileNotFoundException(normalized);
+                            foreach (string partitionNameWithLink in partitionNamesWithLinks)
+                            {
+                                if (normalized.StartsWith($"{partitionNameWithLink}\\", StringComparison.InvariantCultureIgnoreCase))
+                                {
+                                    foreach (IDisk disk in disks)
+                                    {
+                                        bool done = false;
+
+                                        foreach (IPartition diskPartition in disk.Partitions)
+                                        {
+                                            if (diskPartition.Name.Split("\0")[0].Equals(partitionNameWithLink, StringComparison.InvariantCultureIgnoreCase))
+                                            {
+                                                done = true;
+
+                                                IFileSystem? fileSystemData = diskPartition.FileSystem;
+
+                                                if (fileSystemData == null)
+                                                {
+                                                    break;
+                                                }
+
+                                                string targetFile = normalized[(partitionNameWithLink.Length + 1)..];
+
+                                                if (!fileSystemData.FileExists(targetFile))
+                                                {
+                                                    break;
+                                                }
+
+                                                cabinetFileInfo = new CabinetFileInfo()
+                                                {
+                                                    FileName = packageFile.Cabpath,
+                                                    FileStream = fileSystemData.OpenFile(targetFile, FileMode.Open, FileAccess.Read),
+                                                    Attributes = fileSystemData.GetAttributes(targetFile) & ~FileAttributes.ReparsePoint,
+                                                    DateTime = fileSystemData.GetLastWriteTime(targetFile)
+                                                };
+
+                                                break;
+                                            }
+                                        }
+
+                                        if (done)
+                                        {
+                                            break;
+                                        }
+                                    }
+
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            cabinetFileInfo = new CabinetFileInfo()
+                            {
+                                FileName = packageFile.Cabpath,
+                                FileStream = fileSystem.OpenFile(normalized, FileMode.Open, FileAccess.Read),
+                                Attributes = fileSystem.GetAttributes(normalized) & ~FileAttributes.ReparsePoint,
+                                DateTime = fileSystem.GetLastWriteTime(normalized)
+                            };
+                        }
+                    }
+
+                    if (cabinetFileInfo != null)
+                    {
+                        fileMappings.Add(cabinetFileInfo);
+                    }
+                    else
+                    {
+                        Logging.Log($"\rError: File not found! {normalized}\n", LoggingLevel.Error);
+                        //throw new FileNotFoundException(normalized);
+                    }
                 }
             }
 
             return fileMappings;
         }
 
-        public static void BuildCBS(List<IDisk> disks, string destination_path)
+        public static void BuildCBS(IEnumerable<IDisk> disks, string destination_path, UpdateHistory.UpdateHistory? updateHistory)
         {
-            Console.WriteLine();
-            Console.WriteLine("Found Disks:");
-            Console.WriteLine();
+            Logging.Log();
+            Logging.Log("Building CBS Cabinet Files...");
+            Logging.Log();
 
-            foreach (IDisk disk in disks)
-            {
-                foreach (IPartition partition in disk.Partitions)
-                {
-                    if (partition.FileSystem != null)
-                    {
-                        Console.WriteLine($"{partition.Name} {partition.ID} {partition.Type} {partition.Size} KnownFS");
-                    }
-                }
-            }
+            BuildCabinets(disks, destination_path, updateHistory);
 
-            Console.WriteLine();
-
-            foreach (IDisk disk in disks)
-            {
-                foreach (IPartition partition in disk.Partitions)
-                {
-                    if (partition.FileSystem == null)
-                    {
-                        Console.WriteLine($"{partition.Name} {partition.ID} {partition.Type} {partition.Size} UnknownFS");
-                    }
-                }
-            }
-
-            Console.WriteLine();
-            Console.WriteLine("Building CBS Cabinet Files...");
-            Console.WriteLine();
-
-            BuildCabinets(disks, destination_path);
-
-            Console.WriteLine();
-            Console.WriteLine("Cleaning up...");
-            Console.WriteLine();
+            Logging.Log();
+            Logging.Log("Cleaning up...");
+            Logging.Log();
 
             TempManager.CleanupTempFiles();
-
-            Console.WriteLine("The operation completed successfully.");
         }
 
-        private static List<IPartition> GetPartitionsWithServicing(List<IDisk> disks)
+        private static IEnumerable<IPartition> GetPartitionsWithServicing(IEnumerable<IDisk> disks)
         {
             List<IPartition> fileSystemsWithServicing = [];
 
@@ -285,9 +298,9 @@ namespace MobilePackageGen
                                 fileSystemsWithServicing.Add(partition);
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
-
+                            Logging.Log($"Error: Looking up file system servicing failed! {ex.Message}", LoggingLevel.Error);
                         }
                     }
                 }
@@ -296,17 +309,17 @@ namespace MobilePackageGen
             return fileSystemsWithServicing;
         }
 
-        private static int GetPackageCount(List<IDisk> disks)
+        private static int GetPackageCount(IEnumerable<IDisk> disks)
         {
             int count = 0;
 
-            List<IPartition> partitionsWithCbsServicing = GetPartitionsWithServicing(disks);
+            IEnumerable<IPartition> partitionsWithCbsServicing = GetPartitionsWithServicing(disks);
 
             foreach (IPartition partition in partitionsWithCbsServicing)
             {
-                IFileSystem fileSystem = partition.FileSystem;
+                IFileSystem fileSystem = partition.FileSystem!;
 
-                IEnumerable<string> manifestFiles = fileSystem.GetFiles(@"Windows\servicing\Packages", "*.mum", SearchOption.TopDirectoryOnly);
+                IEnumerable<string> manifestFiles = fileSystem.GetFilesWithNtfsIssueWorkaround(@"Windows\servicing\Packages", "*.mum", SearchOption.TopDirectoryOnly);
 
                 count += manifestFiles.Count();
             }
@@ -314,19 +327,19 @@ namespace MobilePackageGen
             return count;
         }
 
-        private static void BuildCabinets(List<IDisk> disks, string outputPath)
+        private static void BuildCabinets(IEnumerable<IDisk> disks, string outputPath, UpdateHistory.UpdateHistory? updateHistory)
         {
             int packagesCount = GetPackageCount(disks);
 
-            List<IPartition> partitionsWithCbsServicing = GetPartitionsWithServicing(disks);
+            IEnumerable<IPartition> partitionsWithCbsServicing = GetPartitionsWithServicing(disks);
 
             int i = 0;
 
             foreach (IPartition partition in partitionsWithCbsServicing)
             {
-                IFileSystem fileSystem = partition.FileSystem;
+                IFileSystem fileSystem = partition.FileSystem!;
 
-                IEnumerable<string> manifestFiles = fileSystem.GetFiles(@"Windows\servicing\Packages", "*.mum", SearchOption.TopDirectoryOnly);
+                IEnumerable<string> manifestFiles = fileSystem.GetFilesWithNtfsIssueWorkaround(@"Windows\servicing\Packages", "*.mum", SearchOption.TopDirectoryOnly);
 
                 foreach (string manifestFile in manifestFiles)
                 {
@@ -334,118 +347,194 @@ namespace MobilePackageGen
                     {
                         Stream stream = fileSystem.OpenFile(manifestFile, FileMode.Open, FileAccess.Read);
                         XmlSerializer serializer = new(typeof(XmlMum.Assembly));
-                        XmlMum.Assembly cbs = (XmlMum.Assembly)serializer.Deserialize(stream);
+                        XmlMum.Assembly cbs = (XmlMum.Assembly)serializer.Deserialize(stream)!;
 
-                        string packageName = $"{cbs.AssemblyIdentity.Name.Replace($"_{cbs.AssemblyIdentity.Language}", "", StringComparison.InvariantCultureIgnoreCase)}";
+                        (string cabFileName, string cabFile) = BuildMetadataHandler.GetPackageNamingForCBS(cbs, updateHistory);
 
-                        if (!packageName.Contains("InboxCompDB"))
+                        if (string.IsNullOrEmpty(cabFileName) && string.IsNullOrEmpty(cabFile))
                         {
-                            packageName = $"{packageName}~{cbs.AssemblyIdentity.PublicKeyToken.Replace("628844477771337a", "31bf3856ad364e35", StringComparison.InvariantCultureIgnoreCase)}~{cbs.AssemblyIdentity.ProcessorArchitecture}~{(cbs.AssemblyIdentity.Language == "neutral" ? "" : cbs.AssemblyIdentity.Language)}~";
+                            string packageName = $"{cbs.AssemblyIdentity.Name.Replace($"_{cbs.AssemblyIdentity.Language}", "", StringComparison.InvariantCultureIgnoreCase)}";
+
+                            if (!packageName.Contains("InboxCompDB"))
+                            {
+                                packageName = $"{packageName}~{cbs.AssemblyIdentity.PublicKeyToken.Replace("628844477771337a", "31bf3856ad364e35", StringComparison.InvariantCultureIgnoreCase)}~{cbs.AssemblyIdentity.ProcessorArchitecture}~{(cbs.AssemblyIdentity.Language == "neutral" ? "" : cbs.AssemblyIdentity.Language)}~";
+                            }
+
+                            string partitionName = partition.Name.Replace("\0", "-");
+
+                            if (!string.IsNullOrEmpty(cbs.Package.TargetPartition))
+                            {
+                                partitionName = cbs.Package.TargetPartition;
+                            }
+
+                            cabFileName = Path.Combine(partitionName, packageName);
+
+                            cabFile = Path.Combine(outputPath, $"{cabFileName}.cab");
+                        }
+                        else
+                        {
+                            cabFile = Path.Combine(outputPath, cabFile);
                         }
 
-                        string cabFileName = Path.Combine(partition.Name, packageName);
-
-                        string cabFile = Path.Combine(outputPath, $"{cabFileName}.cab");
-                        if (Path.GetDirectoryName(cabFile) is string directory && !Directory.Exists(directory))
+                        string componentStatus = $"Creating package {i + 1} of {packagesCount} - {Path.GetFileName(cabFileName)}";
+                        if (componentStatus.Length > Console.BufferWidth - 24 - 1)
                         {
-                            Directory.CreateDirectory(directory);
+                            componentStatus = $"{componentStatus[..(Console.BufferWidth - 24 - 4)]}...";
                         }
 
-                        string componentStatus = $"Creating package {i + 1} of {packagesCount} - {cabFileName}";
-                        if (componentStatus.Length > Console.BufferWidth - 1)
-                        {
-                            componentStatus = $"{componentStatus[..(Console.BufferWidth - 4)]}...";
-                        }
-
-                        Console.WriteLine(componentStatus);
-                        string progressBarString = GetDISMLikeProgressBar(0);
-                        Console.Write($"\r{progressBarString}");
+                        Logging.Log(componentStatus);
+                        string progressBarString = Logging.GetDISMLikeProgressBar(0);
+                        Logging.Log(progressBarString, returnLine: false);
 
                         string fileStatus = "";
 
+                        /*string newCabFile = cabFile;
+
+                        int fileIndex = 2;
+
+                        while (File.Exists(newCabFile))
+                        {
+                            string extension = Path.GetExtension(cabFile);
+                            if (!string.IsNullOrEmpty(extension))
+                            {
+                                newCabFile = $"{cabFile[..^extension.Length]} ({fileIndex}){extension}";
+                            }
+                            else
+                            {
+                                newCabFile = $"{cabFile} ({fileIndex})";
+                            }
+
+                            fileIndex++;
+                        }
+
+                        cabFile = newCabFile;*/
+
                         if (!File.Exists(cabFile))
                         {
-                            List<CabinetFileInfo> fileMappings = GetCabinetFileInfoForCbsPackage(cbs, partition, disks);
+                            IEnumerable<CabinetFileInfo> fileMappings = GetCabinetFileInfoForCbsPackage(cbs, partition, disks);
 
                             uint oldPercentage = uint.MaxValue;
                             uint oldFilePercentage = uint.MaxValue;
                             string oldFileName = "";
 
-                            CabInfo cab = new(cabFile);
-                            cab.PackFiles(null, fileMappings.Select(x => x.GetFileTuple()).ToArray(), fileMappings.Select(x => x.FileName).ToArray(), CompressionLevel.Min, (object _, ArchiveProgressEventArgs archiveProgressEventArgs) =>
+                            // Cab Creation is only supported on Windows
+                            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                             {
-                                uint percentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileNumber * 50 / archiveProgressEventArgs.TotalFiles) + 50;
-
-                                if (percentage != oldPercentage)
+                                if (fileMappings.Count() > 0)
                                 {
-                                    oldPercentage = percentage;
-                                    string progressBarString = GetDISMLikeProgressBar(percentage);
-                                    Console.Write($"\r{progressBarString}");
-                                }
-
-                                if (archiveProgressEventArgs.CurrentFileName != oldFileName)
-                                {
-                                    Console.Write($"\n{new string(' ', fileStatus.Length)}\n{GetDISMLikeProgressBar(0)}");
-                                    Console.SetCursorPosition(0, Console.CursorTop - 2);
-
-                                    oldFileName = archiveProgressEventArgs.CurrentFileName;
-                                    oldFilePercentage = uint.MaxValue;
-
-                                    fileStatus = $"Adding file {archiveProgressEventArgs.CurrentFileNumber + 1} of {archiveProgressEventArgs.TotalFiles} - {archiveProgressEventArgs.CurrentFileName}";
-                                    if (fileStatus.Length > Console.BufferWidth - 1)
+                                    if (Path.GetDirectoryName(cabFile) is string directory && !Directory.Exists(directory))
                                     {
-                                        fileStatus = $"{fileStatus[..(Console.BufferWidth - 4)]}...";
+                                        Directory.CreateDirectory(directory);
                                     }
 
-                                    Console.Write($"\n{fileStatus}\n{GetDISMLikeProgressBar(0)}");
-                                    Console.SetCursorPosition(0, Console.CursorTop - 2);
+                                    CabInfo cab = new(cabFile);
+                                    cab.PackFiles(null, fileMappings.Select(x => x.GetFileTuple()).ToArray(), fileMappings.Select(x => x.FileName).ToArray(), CompressionLevel.Min, (object? _, ArchiveProgressEventArgs archiveProgressEventArgs) =>
+                                    {
+                                        string fileNameParsed;
+                                        if (string.IsNullOrEmpty(archiveProgressEventArgs.CurrentFileName))
+                                        {
+                                            fileNameParsed = $"Unknown ({archiveProgressEventArgs.CurrentFileNumber})";
+                                        }
+                                        else
+                                        {
+                                            fileNameParsed = archiveProgressEventArgs.CurrentFileName;
+                                        }
+
+                                        uint percentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileNumber * 50 / archiveProgressEventArgs.TotalFiles) + 50;
+
+                                        if (percentage != oldPercentage)
+                                        {
+                                            oldPercentage = percentage;
+                                            string progressBarString = Logging.GetDISMLikeProgressBar(percentage);
+
+                                            Logging.Log(progressBarString, returnLine: false);
+                                        }
+
+                                        if (fileNameParsed != oldFileName)
+                                        {
+                                            Logging.Log();
+                                            Logging.Log(new string(' ', fileStatus.Length));
+                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
+
+                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
+
+                                            oldFileName = fileNameParsed;
+
+                                            oldFilePercentage = uint.MaxValue;
+
+                                            fileStatus = $"Adding file {archiveProgressEventArgs.CurrentFileNumber + 1} of {archiveProgressEventArgs.TotalFiles} - {fileNameParsed}";
+                                            if (fileStatus.Length > Console.BufferWidth - 24 - 1)
+                                            {
+                                                fileStatus = $"{fileStatus[..(Console.BufferWidth - 24 - 4)]}...";
+                                            }
+
+                                            Logging.Log();
+                                            Logging.Log(fileStatus);
+                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
+
+                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
+                                        }
+
+                                        uint filePercentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileBytesProcessed * 100 / archiveProgressEventArgs.CurrentFileTotalBytes);
+
+                                        if (filePercentage != oldFilePercentage)
+                                        {
+                                            oldFilePercentage = filePercentage;
+                                            string progressBarString = Logging.GetDISMLikeProgressBar(filePercentage);
+
+                                            Logging.Log();
+                                            Logging.Log();
+                                            Logging.Log(progressBarString, returnLine: false);
+
+                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
+                                        }
+                                    });
                                 }
-
-                                uint filePercentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileBytesProcessed * 100 / archiveProgressEventArgs.CurrentFileTotalBytes);
-
-                                if (filePercentage != oldFilePercentage)
-                                {
-                                    oldFilePercentage = filePercentage;
-                                    string progressBarString = GetDISMLikeProgressBar(filePercentage);
-                                    Console.Write($"\n\n{progressBarString}");
-
-                                    Console.SetCursorPosition(0, Console.CursorTop - 2);
-                                }
-                            });
+                            }
 
                             foreach (CabinetFileInfo fileMapping in fileMappings)
                             {
                                 fileMapping.FileStream.Close();
                             }
                         }
+                        else
+                        {
+                            Logging.Log($"CAB already exists! Skipping. {cabFile}", LoggingLevel.Warning);
+                        }
 
                         if (i != packagesCount - 1)
                         {
                             Console.SetCursorPosition(0, Console.CursorTop - 1);
-                            Console.WriteLine($"{new string(' ', componentStatus.Length)}\n{GetDISMLikeProgressBar(100)}");
+
+                            Logging.Log(new string(' ', componentStatus.Length));
+                            Logging.Log(Logging.GetDISMLikeProgressBar(100));
 
                             if (string.IsNullOrEmpty(fileStatus))
                             {
-                                Console.WriteLine($"{new string(' ', fileStatus.Length)}\n{new string(' ', 60)}");
+                                Logging.Log(new string(' ', fileStatus.Length));
+                                Logging.Log(new string(' ', 60));
                             }
                             else
                             {
-                                Console.WriteLine($"{new string(' ', fileStatus.Length)}\n{GetDISMLikeProgressBar(100)}");
+                                Logging.Log(new string(' ', fileStatus.Length));
+                                Logging.Log(Logging.GetDISMLikeProgressBar(100));
                             }
 
                             Console.SetCursorPosition(0, Console.CursorTop - 4);
                         }
                         else
                         {
-                            Console.WriteLine($"\r{GetDISMLikeProgressBar(100)}");
+                            Logging.Log($"\r{Logging.GetDISMLikeProgressBar(100)}");
 
                             if (string.IsNullOrEmpty(fileStatus))
                             {
-                                Console.WriteLine($"\n{new string(' ', 60)}");
+                                Logging.Log();
+                                Logging.Log(new string(' ', 60));
                             }
                             else
                             {
-                                Console.WriteLine($"\n{GetDISMLikeProgressBar(100)}");
+                                Logging.Log();
+                                Logging.Log(Logging.GetDISMLikeProgressBar(100));
                             }
                         }
 
@@ -453,36 +542,11 @@ namespace MobilePackageGen
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error: CAB creation failed! {ex.Message}");
+                        Logging.Log($"Error: CAB creation failed! {ex.Message}", LoggingLevel.Error);
                         //throw;
                     }
                 }
             }
-        }
-
-        private static string GetDISMLikeProgressBar(uint percentage)
-        {
-            if (percentage > 100)
-            {
-                percentage = 100;
-            }
-
-            int eqsLength = (int)Math.Floor((double)percentage * 55u / 100u);
-
-            string bases = $"{new string('=', eqsLength)}{new string(' ', 55 - eqsLength)}";
-
-            bases = bases.Insert(28, percentage + "%");
-
-            if (percentage == 100)
-            {
-                bases = bases[1..];
-            }
-            else if (percentage < 10)
-            {
-                bases = bases.Insert(28, " ");
-            }
-
-            return $"[{bases}]";
         }
     }
 }
