@@ -175,6 +175,11 @@ namespace MobilePackageGen
                                 DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
                             }
 
+                            if (DestinationPath.StartsWith(@"\\"))
+                            {
+                                DestinationPath = DestinationPath[2..];
+                            }
+                            
                             string DestinationPathExtension = Path.GetExtension(DestinationPath);
                             if (!string.IsNullOrEmpty(DestinationPathExtension))
                             {
