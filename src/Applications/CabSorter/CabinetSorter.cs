@@ -34,6 +34,11 @@ namespace CabSorter
                             DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
                         }
 
+                        if (DestinationPath.StartsWith(@"\\"))
+                        {
+                            DestinationPath = DestinationPath[2..];
+                        }
+
                         bool found = false;
                         string foundFilePath = "";
 
