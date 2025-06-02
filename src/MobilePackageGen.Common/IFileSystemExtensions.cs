@@ -9,7 +9,7 @@ namespace MobilePackageGen
     {
         public static IEnumerable<string> GetFilesWithNtfsIssueWorkaround(this IFileSystem fileSystem, string path, string searchPattern, SearchOption searchOption)
         {
-            if (fileSystem is not NtfsFileSystem ntfsFileSystem)
+            /*if (fileSystem is not NtfsFileSystem ntfsFileSystem)
             {
                 return fileSystem.GetFiles(path, searchPattern, searchOption);
             }
@@ -66,7 +66,9 @@ namespace MobilePackageGen
                     }
             }
 
-            return [];
+            return [];*/
+
+            return fileSystem.GetFiles(path, searchPattern, searchOption);
         }
     }
 }

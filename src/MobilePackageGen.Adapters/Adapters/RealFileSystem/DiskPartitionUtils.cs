@@ -9,7 +9,7 @@ namespace MobilePackageGen.Adapters.RealFileSystem
         {
             try
             {
-                List<PartitionInfo> s = pTable.Where(p => p.PartitionName.ToUpper() == partitionName.ToUpper()).ToList();
+                List<PartitionInfo> s = [.. pTable.Where(p => p.PartitionName.Equals(partitionName, StringComparison.CurrentCultureIgnoreCase))];
 
                 if (s.Count > 0)
                 {
@@ -30,6 +30,7 @@ namespace MobilePackageGen.Adapters.RealFileSystem
             }
             catch (Exception exception)
             {
+                Logging.Log("Error: Partition: " + partitionName, LoggingLevel.Error);
                 Logging.Log("Error: " + exception.Message, LoggingLevel.Error);
                 throw;
             }

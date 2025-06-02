@@ -6,7 +6,7 @@
         {
             Console.WriteLine(@"
 Mobile Package Generator Tool
-Version: 1.0.6.0
+Version: 1.0.7.0
 ");
 
             if (args.Length < 2)
@@ -27,12 +27,15 @@ Version: 1.0.6.0
             }
 
             BuildMetadataHandler.GetOEMInput(disks, outputFolder);
+            BuildMetadataHandler.GetFeatureManifests(disks, outputFolder);
             UpdateHistory.UpdateHistory? updateHistory = BuildMetadataHandler.GetUpdateHistory(disks);
-            BuildMetadataHandler.GetAdditionalContent(disks);
+            BuildMetadataHandler.GetAdditionalContent(disks, outputFolder);
 
             CBSBuilder.BuildCBS(disks, outputFolder, updateHistory);
 
             SPKGBuilder.BuildSPKG(disks, outputFolder, updateHistory);
+
+            DriverBuilder.BuildDrivers(disks, outputFolder, updateHistory);
 
             Console.WriteLine("The operation completed successfully.");
         }

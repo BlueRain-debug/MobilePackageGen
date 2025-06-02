@@ -29,11 +29,20 @@ namespace MobilePackageGen.Adapters.RealFileSystem
             get;
         }
 
-        public Stream Stream => GetPartitionStream(Name, GetPartitions());
+        public Stream Stream => new Func<Stream>(() => {
+            try
+            {
+                return GetPartitionStream(Name, GetPartitions());
+            }
+            catch
+            {
+                return null;
+            }
+        }).Invoke();
 
         public DeferredStreamPartition(IFileSystem FileSystem, string Name, Guid Type, Guid ID)
         {
-            Size = Stream.Length;
+            Size = Stream?.Length ?? 0;
             this.Name = Name;
             this.Type = Type;
             this.ID = ID;

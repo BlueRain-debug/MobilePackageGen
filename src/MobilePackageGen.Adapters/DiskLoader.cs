@@ -61,6 +61,11 @@ namespace MobilePackageGen
             string extension = Path.GetExtension(file);
             switch (extension.ToLowerInvariant())
             {
+                case ".xml":
+                    {
+                        Stream rawProgramStream = QualcommEDLProgramStream.ParseProgramXML.GetStream(file, 4096)!;
+                        return new Adapters.RawDisk.Disk(rawProgramStream);
+                    }
                 case ".wim":
                     {
                         return new Adapters.Wim.Disk(file);

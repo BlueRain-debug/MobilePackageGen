@@ -4,3 +4,6 @@
 [submodule "thirdparty/Img2Ffu"]
 	path = thirdparty/Img2Ffu
 	url = https://github.com/WOA-Project/Img2Ffu
+[submodule "thirdparty/EDLProgram2VHDX"]
+	path = thirdparty/EDLProgram2VHDX
+	url = https://github.com/gus33000/EDLProgram2VHDX

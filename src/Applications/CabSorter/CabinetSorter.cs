@@ -15,7 +15,7 @@ namespace CabSorter
                     {
                         string DestinationPath = Package.PackageFile;
 
-                        if (DestinationPath.StartsWith(@"\\?\"))
+                        if (DestinationPath.StartsWith(@"\\"))
                         {
                             int indexOfPackages = DestinationPath.IndexOf("MSPackages");
                             if (indexOfPackages > -1)
@@ -29,9 +29,14 @@ namespace CabSorter
                             DestinationPath = DestinationPath[4..];
                         }
 
+                        if (DestinationPath.StartsWith(@"\\"))
+                        {
+                            DestinationPath = DestinationPath[2..];
+                        }
+
                         if (DestinationPath[1] == ':')
                         {
-                            DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
+                            DestinationPath = Path.Combine($"Drive{DestinationPath[0].ToString().ToUpper()}", DestinationPath[3..]);
                         }
 
                         bool found = false;
@@ -109,7 +114,7 @@ namespace CabSorter
                     {
                         string DestinationPath = Package.PackageFile;
 
-                        if (DestinationPath.StartsWith(@"\\?\"))
+                        if (DestinationPath.StartsWith(@"\\"))
                         {
                             int indexOfPackages = DestinationPath.IndexOf("MSPackages");
                             if (indexOfPackages > -1)
@@ -123,9 +128,14 @@ namespace CabSorter
                             DestinationPath = DestinationPath[4..];
                         }
 
+                        if (DestinationPath.StartsWith(@"\\"))
+                        {
+                            DestinationPath = DestinationPath[2..];
+                        }
+
                         if (DestinationPath[1] == ':')
                         {
-                            DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
+                            DestinationPath = Path.Combine($"Drive{DestinationPath[0].ToString().ToUpper()}", DestinationPath[3..]);
                         }
 
                         bool found = false;

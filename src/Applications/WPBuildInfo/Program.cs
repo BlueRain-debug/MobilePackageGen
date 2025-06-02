@@ -12,7 +12,7 @@ namespace WPBuildInfo
         {
             Console.WriteLine(@"
 Windows Phone Build Info Tool
-Version: 1.0.6.0
+Version: 1.0.7.0
 ");
 
             if (args.Length < 1)

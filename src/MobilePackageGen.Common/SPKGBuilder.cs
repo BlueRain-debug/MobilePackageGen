@@ -1,8 +1,5 @@
 ﻿using DiscUtils;
-using Microsoft.Deployment.Compression;
-using Microsoft.Deployment.Compression.Cab;
 using MobilePackageGen.GZip;
-using System.Data;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
 
@@ -19,7 +16,7 @@ namespace MobilePackageGen
                 $"{(string.IsNullOrEmpty(dsm.Resolution) == true ? "" : $"_Res_{dsm.Resolution}")}";
         }
 
-        private static IEnumerable<CabinetFileInfo> GetCabinetFileInfoForDsmPackage(XmlDsm.Package dsm, IPartition partition, IEnumerable<IDisk> disks)
+        private static List<CabinetFileInfo> GetCabinetFileInfoForDsmPackage(XmlDsm.Package dsm, IPartition partition, IEnumerable<IDisk> disks)
         {
             List<CabinetFileInfo> fileMappings = [];
 
@@ -315,7 +312,7 @@ namespace MobilePackageGen
                 }
                 else
                 {
-                    //Logging.Log($"\rError: File not found! {normalized}\n", LoggingLevel.Error);
+                    Logging.Log($"\rError: File not found! {normalized}\n", LoggingLevel.Error);
                 }
             }
 
@@ -337,7 +334,7 @@ namespace MobilePackageGen
             TempManager.CleanupTempFiles();
         }
 
-        private static IEnumerable<IPartition> GetPartitionsWithServicing(IEnumerable<IDisk> disks)
+        private static List<IPartition> GetPartitionsWithServicing(IEnumerable<IDisk> disks)
         {
             List<IPartition> fileSystemsWithServicing = [];
 
@@ -452,107 +449,21 @@ namespace MobilePackageGen
 
                         string fileStatus = "";
 
-                        /*string newCabFile = cabFile;
-
-                        int fileIndex = 2;
-
-                        while (File.Exists(newCabFile))
-                        {
-                            string extension = Path.GetExtension(cabFile);
-                            if (!string.IsNullOrEmpty(extension))
-                            {
-                                newCabFile = $"{cabFile[..^extension.Length]} ({fileIndex}){extension}";
-                            }
-                            else
-                            {
-                                newCabFile = $"{cabFile} ({fileIndex})";
-                            }
-
-                            fileIndex++;
-                        }
-
-                        cabFile = newCabFile;*/
-
                         if (!File.Exists(cabFile))
                         {
                             IEnumerable<CabinetFileInfo> fileMappings = GetCabinetFileInfoForDsmPackage(dsm, partition, disks);
 
-                            uint oldPercentage = uint.MaxValue;
-                            uint oldFilePercentage = uint.MaxValue;
-                            string oldFileName = "";
-
                             // Cab Creation is only supported on Windows
                             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                             {
-                                if (fileMappings.Count() > 0)
+                                if (fileMappings.Any())
                                 {
                                     if (Path.GetDirectoryName(cabFile) is string directory && !Directory.Exists(directory))
                                     {
                                         Directory.CreateDirectory(directory);
                                     }
 
-                                    CabInfo cab = new(cabFile);
-                                    cab.PackFiles(null, fileMappings.Select(x => x.GetFileTuple()).ToArray(), fileMappings.Select(x => x.FileName).ToArray(), CompressionLevel.Min, (object? _, ArchiveProgressEventArgs archiveProgressEventArgs) =>
-                                    {
-                                        string fileNameParsed;
-                                        if (string.IsNullOrEmpty(archiveProgressEventArgs.CurrentFileName))
-                                        {
-                                            fileNameParsed = $"Unknown ({archiveProgressEventArgs.CurrentFileNumber})";
-                                        }
-                                        else
-                                        {
-                                            fileNameParsed = archiveProgressEventArgs.CurrentFileName;
-                                        }
-
-                                        uint percentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileNumber * 50 / archiveProgressEventArgs.TotalFiles) + 50;
-
-                                        if (percentage != oldPercentage)
-                                        {
-                                            oldPercentage = percentage;
-                                            string progressBarString = Logging.GetDISMLikeProgressBar(percentage);
-
-                                            Logging.Log(progressBarString, returnLine: false);
-                                        }
-
-                                        if (fileNameParsed != oldFileName)
-                                        {
-                                            Logging.Log();
-                                            Logging.Log(new string(' ', fileStatus.Length));
-                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-
-                                            oldFileName = fileNameParsed;
-
-                                            oldFilePercentage = uint.MaxValue;
-
-                                            fileStatus = $"Adding file {archiveProgressEventArgs.CurrentFileNumber + 1} of {archiveProgressEventArgs.TotalFiles} - {fileNameParsed}";
-                                            if (fileStatus.Length > Console.BufferWidth - 24 - 1)
-                                            {
-                                                fileStatus = $"{fileStatus[..(Console.BufferWidth - 24 - 4)]}...";
-                                            }
-
-                                            Logging.Log();
-                                            Logging.Log(fileStatus);
-                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-                                        }
-
-                                        uint filePercentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileBytesProcessed * 100 / archiveProgressEventArgs.CurrentFileTotalBytes);
-
-                                        if (filePercentage != oldFilePercentage)
-                                        {
-                                            oldFilePercentage = filePercentage;
-                                            string progressBarString = Logging.GetDISMLikeProgressBar(filePercentage);
-
-                                            Logging.Log();
-                                            Logging.Log();
-                                            Logging.Log(progressBarString, returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-                                        }
-                                    });
+                                    CabinetBuilder.BuildCab(cabFile, fileMappings, ref fileStatus);
                                 }
                             }
 
@@ -607,7 +518,6 @@ namespace MobilePackageGen
                     catch (Exception ex)
                     {
                         Logging.Log($"Error: CAB creation failed! {ex.Message}", LoggingLevel.Error);
-                        //throw;
                     }
                 }
             }

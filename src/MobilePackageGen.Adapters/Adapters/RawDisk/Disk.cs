@@ -41,7 +41,7 @@ namespace MobilePackageGen.Adapters.RawDisk
         private static (IEnumerable<(GPT.GPT.Partition, Stream)>, int, Stream) GetPartitions(Stream diskStream)
         {
             VirtualDisk virtualDisk = new DiscUtils.Raw.Disk(diskStream, Ownership.None);
-            return (DiskCommon.GetPartitions(virtualDisk), virtualDisk.Geometry!.Value.BytesPerSector, virtualDisk.Content);
+            return (DiskCommon.GetPartitions(virtualDisk), 4096/*virtualDisk.Geometry!.Value.BytesPerSector*/, virtualDisk.Content);
         }
     }
 }

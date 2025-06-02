@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\LibSxS\LibSxS.csproj" />
     <ProjectReference Include="..\Microsoft.Deployment.Compression.Cab\Microsoft.Deployment.Compression.Cab.csproj" />
     <ProjectReference Include="..\MobilePackageGen.Adapters\MobilePackageGen.Adapters.csproj" />
   </ItemGroup>

@@ -16,7 +16,7 @@ namespace MobilePackageGen
                     {
                         if (fileSystem.DirectoryExists(@"Windows\ImageUpdate"))
                         {
-                            string[] ImageUpdateFiles = fileSystem.GetFiles(@"Windows\ImageUpdate", "*", SearchOption.AllDirectories).ToArray();
+                            string[] ImageUpdateFiles = [.. fileSystem.GetFiles(@"Windows\ImageUpdate", "*", SearchOption.AllDirectories)];
                             foreach (string ImageUpdateFile in ImageUpdateFiles)
                             {
                                 if (Path.GetFileName(ImageUpdateFile).Equals("UpdateHistory.xml", StringComparison.InvariantCultureIgnoreCase))
@@ -35,7 +35,7 @@ namespace MobilePackageGen
 
                         if (fileSystem.DirectoryExists(@"SharedData\DuShared"))
                         {
-                            string[] DUSharedFiles = fileSystem.GetFiles(@"SharedData\DuShared", "*", SearchOption.AllDirectories).ToArray();
+                            string[] DUSharedFiles = [.. fileSystem.GetFiles(@"SharedData\DuShared", "*", SearchOption.AllDirectories)];
                             foreach (string DUSharedFile in DUSharedFiles)
                             {
                                 if (Path.GetFileName(DUSharedFile).Equals("UpdateHistory.xml", StringComparison.InvariantCultureIgnoreCase))
@@ -52,6 +52,89 @@ namespace MobilePackageGen
             }
 
             return null;
+        }
+
+        public static void GetFeatureManifests(IEnumerable<IDisk> disks, string destination_path)
+        {
+            string OEMInputPath = Path.Combine(destination_path, "OEMInput.xml");
+
+            if (!File.Exists(OEMInputPath))
+            {
+                return;
+            }
+
+            string[] FMs = File.ReadAllLines(OEMInputPath);
+            FMs = [.. FMs.Where(x => x.Contains("<AdditionalFM>")).Select(x => x.Split(">")[1].Split("<")[0])];
+
+            foreach (string FM in FMs)
+            {
+                string DestinationPath = FM;
+                DestinationPath = ReformatDestinationPath(DestinationPath);
+
+                foreach (IDisk disk in disks)
+                {
+                    foreach (IPartition partition in disk.Partitions)
+                    {
+                        IFileSystem? fileSystem = partition.FileSystem;
+
+                        if (fileSystem != null)
+                        {
+                            if (fileSystem.FileExists($@"Windows\ImageUpdate\FeatureManifest\Microsoft\{Path.GetFileName(FM)}"))
+                            {
+                                string destFolder = string.Join(@"\\", DestinationPath.Split(@"\")[..^1]);
+                                if (!Directory.Exists(Path.Combine(destination_path, destFolder)))
+                                {
+                                    Directory.CreateDirectory(Path.Combine(destination_path, destFolder));
+                                }
+
+                                string destFM = Path.Combine(destination_path, DestinationPath);
+
+                                if (!File.Exists(destFM))
+                                {
+                                    using Stream FMFileStream = fileSystem.OpenFile($@"Windows\ImageUpdate\FeatureManifest\Microsoft\{Path.GetFileName(FM)}", FileMode.Open, FileAccess.Read);
+
+                                    FileAttributes Attributes = fileSystem.GetAttributes($@"Windows\ImageUpdate\FeatureManifest\Microsoft\{Path.GetFileName(FM)}") & ~FileAttributes.ReparsePoint;
+                                    DateTime LastWriteTime = fileSystem.GetLastWriteTime($@"Windows\ImageUpdate\FeatureManifest\Microsoft\{Path.GetFileName(FM)}");
+
+                                    using (Stream outputFile = File.Create(destFM))
+                                    {
+                                        FMFileStream.CopyTo(outputFile);
+                                    }
+
+                                    File.SetAttributes(destFM, Attributes);
+                                    File.SetLastWriteTime(destFM, LastWriteTime);
+                                }
+                            }
+                            else if (fileSystem.FileExists($@"Windows\ImageUpdate\FeatureManifest\OEM\{Path.GetFileName(FM)}"))
+                            {
+                                string destFolder = string.Join(@"\\", DestinationPath.Split(@"\")[..^1]);
+                                if (!Directory.Exists(Path.Combine(destination_path, destFolder)))
+                                {
+                                    Directory.CreateDirectory(Path.Combine(destination_path, destFolder));
+                                }
+
+                                string destFM = Path.Combine(destination_path, DestinationPath);
+
+                                if (!File.Exists(destFM))
+                                {
+                                    using Stream FMFileStream = fileSystem.OpenFile($@"Windows\ImageUpdate\FeatureManifest\OEM\{Path.GetFileName(FM)}", FileMode.Open, FileAccess.Read);
+
+                                    FileAttributes Attributes = fileSystem.GetAttributes($@"Windows\ImageUpdate\FeatureManifest\OEM\{Path.GetFileName(FM)}") & ~FileAttributes.ReparsePoint;
+                                    DateTime LastWriteTime = fileSystem.GetLastWriteTime($@"Windows\ImageUpdate\FeatureManifest\OEM\{Path.GetFileName(FM)}");
+
+                                    using (Stream outputFile = File.Create(destFM))
+                                    {
+                                        FMFileStream.CopyTo(outputFile);
+                                    }
+
+                                    File.SetAttributes(destFM, Attributes);
+                                    File.SetLastWriteTime(destFM, LastWriteTime);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         public static void GetOEMInput(IEnumerable<IDisk> disks, string destination_path)
@@ -94,7 +177,7 @@ namespace MobilePackageGen
             }
         }
 
-        public static void GetAdditionalContent(IEnumerable<IDisk> disks)
+        public static void GetAdditionalContent(IEnumerable<IDisk> disks, string destination_path)
         {
             foreach (IDisk disk in disks)
             {
@@ -104,16 +187,74 @@ namespace MobilePackageGen
 
                     if (fileSystem != null)
                     {
-                        if (partition.Name.Equals("BSP", StringComparison.InvariantCultureIgnoreCase))
-                        {
-                            // BSP Partition
-                            // Driver Packages
-                        }
-
                         if (partition.Name.Equals("PreInstalled", StringComparison.InvariantCultureIgnoreCase))
                         {
                             // PreInstalled Partition
                             // Extracted APPX, Licenses
+
+                            string[] LicenseFiles = [.. fileSystem.GetFiles("AppData", "*.xml", SearchOption.TopDirectoryOnly)];
+
+                            foreach (string LicenseFile in LicenseFiles)
+                            {
+                                Logging.Log($"Extracting {Path.GetFileNameWithoutExtension(LicenseFile)} license file...");
+
+                                string destFolder = Path.Combine(destination_path, "PreInstalled", "Licenses");
+
+                                if (!Directory.Exists(destFolder))
+                                {
+                                    Directory.CreateDirectory(destFolder);
+                                }
+
+                                string destFile = Path.Combine(destFolder, Path.GetFileName(LicenseFile));
+
+                                if (!File.Exists(destFile))
+                                {
+                                    using Stream PreInstalledFileStream = fileSystem.OpenFile(LicenseFile, FileMode.Open, FileAccess.Read);
+                                    FileAttributes Attributes = fileSystem.GetAttributes(LicenseFile) & ~FileAttributes.ReparsePoint;
+                                    DateTime LastWriteTime = fileSystem.GetLastWriteTime(LicenseFile);
+
+                                    using (Stream outputFile = File.Create(destFile))
+                                    {
+                                        PreInstalledFileStream.CopyTo(outputFile);
+                                    }
+
+                                    File.SetAttributes(destFile, Attributes);
+                                    File.SetLastWriteTime(destFile, LastWriteTime);
+                                }
+                            }
+
+                            string[] AppFolders = [.. fileSystem.GetDirectories("WindowsApps", "*", SearchOption.TopDirectoryOnly)];
+                            foreach (string AppFolder in AppFolders)
+                            {
+                                Logging.Log($"Extracting {Path.GetFileName(AppFolder)} app files...");
+
+                                string[] AppFiles = [.. fileSystem.GetFiles(AppFolder, "*", SearchOption.AllDirectories)];
+                                foreach (string AppFile in AppFiles)
+                                {
+                                    string destFolder = Path.Combine(destination_path, "PreInstalled", "Apps", string.Join("\\", AppFile[12..].Split("\\")[..^1]));
+                                    if (!Directory.Exists(destFolder))
+                                    {
+                                        Directory.CreateDirectory(destFolder);
+                                    }
+
+                                    string destFile = Path.Combine(destFolder, Path.GetFileName(AppFile));
+
+                                    if (!File.Exists(destFile))
+                                    {
+                                        using Stream PreInstalledFileStream = fileSystem.OpenFile(AppFile, FileMode.Open, FileAccess.Read);
+                                        FileAttributes Attributes = fileSystem.GetAttributes(AppFile) & ~FileAttributes.ReparsePoint;
+                                        DateTime LastWriteTime = fileSystem.GetLastWriteTime(AppFile);
+
+                                        using (Stream outputFile = File.Create(destFile))
+                                        {
+                                            PreInstalledFileStream.CopyTo(outputFile);
+                                        }
+
+                                        File.SetAttributes(destFile, Attributes);
+                                        File.SetLastWriteTime(destFile, LastWriteTime);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -155,27 +296,9 @@ namespace MobilePackageGen
                         if (matches)
                         {
                             string DestinationPath = Package.PackageFile;
-
-                            /*if (DestinationPath.StartsWith(@"\\?\"))
-                            {
-                                int indexOfPackages = DestinationPath.IndexOf("MSPackages");
-                                if (indexOfPackages > -1)
-                                {
-                                    DestinationPath = DestinationPath[indexOfPackages..];
-                                }
-                            }*/
-
-                            if (DestinationPath.StartsWith(@"\\?\"))
-                            {
-                                DestinationPath = DestinationPath[4..];
-                            }
-
-                            if (DestinationPath[1] == ':')
-                            {
-                                DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
-                            }
-
+                            DestinationPath = ReformatDestinationPath(DestinationPath);
                             string DestinationPathExtension = Path.GetExtension(DestinationPath);
+
                             if (!string.IsNullOrEmpty(DestinationPathExtension))
                             {
                                 cabFileName = DestinationPath[..^DestinationPathExtension.Length];
@@ -202,6 +325,42 @@ namespace MobilePackageGen
             return (cabFileName, cabFile);
         }
 
+        private static string ReformatDestinationPath(string DestinationPath)
+        {
+            if (DestinationPath[1] == ':')
+            {
+                string DriveLetter = DestinationPath[0].ToString().ToUpper();
+                string DriveLetterLessPath = DestinationPath[3..];
+
+                DestinationPath = Path.Combine($"Drive{DriveLetter}", DriveLetterLessPath);
+            }
+
+            if (DestinationPath.StartsWith(@"\\?\") && DestinationPath[5] == ':')
+            {
+                string UNCLessPath = DestinationPath[4..];
+                string DriveLetter = UNCLessPath[0].ToString().ToUpper();
+                string DriveLetterLessPath = UNCLessPath[3..];
+
+                DestinationPath = Path.Combine($"Drive{DriveLetter}", DriveLetterLessPath);
+            }
+
+            if (DestinationPath.StartsWith(@"\\?\"))
+            {
+                string UNCLessPath = DestinationPath[4..];
+
+                DestinationPath = Path.Combine("UNC", UNCLessPath);
+            }
+
+            if (DestinationPath.StartsWith('\\'))
+            {
+                string UNCLessPath = DestinationPath[2..];
+
+                DestinationPath = Path.Combine($"UNC", UNCLessPath);
+            }
+
+            return DestinationPath;
+        }
+
         public static (string cabFileName, string cabFile) GetPackageNamingForCBS(XmlMum.Assembly cbs, UpdateHistory.UpdateHistory? updateHistory)
         {
             string cabFileName = "";
@@ -223,32 +382,80 @@ namespace MobilePackageGen
                             continue;
                         }
 
+                        if (Package.PackageIdentity == null)
+                        {
+                            continue;
+                        }
+
                         bool matches = Package.PackageIdentity.Equals(cbsPackageIdentity, StringComparison.InvariantCultureIgnoreCase);
 
                         if (matches)
                         {
                             string DestinationPath = Package.PackageFile;
-
-                            /*if (DestinationPath.StartsWith(@"\\?\"))
-                            {
-                                int indexOfPackages = DestinationPath.IndexOf("MSPackages");
-                                if (indexOfPackages > -1)
-                                {
-                                    DestinationPath = DestinationPath[indexOfPackages..];
-                                }
-                            }*/
-
-                            if (DestinationPath.StartsWith(@"\\?\"))
-                            {
-                                DestinationPath = DestinationPath[4..];
-                            }
-
-                            if (DestinationPath[1] == ':')
-                            {
-                                DestinationPath = Path.Combine($"Drive{DestinationPath[0]}", DestinationPath[3..]);
-                            }
-
+                            DestinationPath = ReformatDestinationPath(DestinationPath);
                             string DestinationPathExtension = Path.GetExtension(DestinationPath);
+
+                            if (!string.IsNullOrEmpty(DestinationPathExtension))
+                            {
+                                cabFileName = DestinationPath[..^DestinationPathExtension.Length];
+                                cabFile = DestinationPath;
+                            }
+                            else
+                            {
+                                cabFileName = DestinationPath;
+                                cabFile = cabFileName;
+                            }
+
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (found)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return (cabFileName, cabFile);
+        }
+
+        public static (string cabFileName, string cabFile) GetPackageNamingForINF(string inf, UpdateHistory.UpdateHistory? updateHistory)
+        {
+            string cabFileName = "";
+            string cabFile = "";
+
+            bool found = false;
+            
+            string infFileName = Path.GetFileNameWithoutExtension(inf);
+
+            if (updateHistory != null)
+            {
+                // Go through every update in reverse chronological order
+                foreach (UpdateHistory.UpdateEvent UpdateEvent in updateHistory.UpdateEvents.UpdateEvent.Reverse())
+                {
+                    foreach (UpdateHistory.Package Package in UpdateEvent.UpdateOSOutput.Packages.Package)
+                    {
+                        if (Package.PackageFile.EndsWith(".mum", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        bool matches = Path.GetFileNameWithoutExtension(Package.PackageFile) == infFileName;
+
+                        if (matches)
+                        {
+                            string DestinationPath = Package.PackageFile;
+                            DestinationPath = ReformatDestinationPath(DestinationPath);
+                            string DestinationPathExtension = Path.GetExtension(DestinationPath);
+
+                            if (DestinationPathExtension == ".inf")
+                            {
+                                DestinationPathExtension = ".cab";
+                                DestinationPath = DestinationPath[..^DestinationPathExtension.Length] + ".cab";
+                            }
+
                             if (!string.IsNullOrEmpty(DestinationPathExtension))
                             {
                                 cabFileName = DestinationPath[..^DestinationPathExtension.Length];

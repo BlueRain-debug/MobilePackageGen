@@ -1,6 +1,4 @@
 ﻿using DiscUtils;
-using Microsoft.Deployment.Compression;
-using Microsoft.Deployment.Compression.Cab;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
 
@@ -8,12 +6,14 @@ namespace MobilePackageGen
 {
     public class CBSBuilder
     {
+        private static bool USE_UNCOMPRESSED_MANIFEST_FILES = false;
+
         private static string GetCBSComponentName(XmlMum.Assembly cbs)
         {
             return $"{cbs.AssemblyIdentity.Name}~{cbs.AssemblyIdentity.PublicKeyToken}~{cbs.AssemblyIdentity.ProcessorArchitecture}~{(cbs.AssemblyIdentity.Language == "neutral" ? "" : cbs.AssemblyIdentity.Language)}~{cbs.AssemblyIdentity.Version}";
         }
 
-        private static IEnumerable<CabinetFileInfo> GetCabinetFileInfoForCbsPackage(XmlMum.Assembly cbs, IPartition partition, IEnumerable<IDisk> disks)
+        private static List<CabinetFileInfo> GetCabinetFileInfoForCbsPackage(XmlMum.Assembly cbs, IPartition partition, IEnumerable<IDisk> disks)
         {
             List<CabinetFileInfo> fileMappings = [];
 
@@ -51,9 +51,12 @@ namespace MobilePackageGen
                         fileName = fileName[1..];
                     }
 
+                    bool isManifest = false;
+
                     // If a manifest file is without any path, it must be retrieved from the manifest directory
                     if (!fileName.Contains('\\') && fileName.EndsWith(".manifest"))
                     {
+                        isManifest = true;
                         fileName = Path.Combine(WindowsSideBySideManifestsFolderPath, fileName);
                     }
 
@@ -151,6 +154,11 @@ namespace MobilePackageGen
                         normalized = Path.Combine(WindowsSideBySideManifestsFolderPath, normalized.Split('\\')[^1]);
                     }
 
+                    if (!fileSystem.Exists(normalized) && architecture?.Contains("arm64.arm") == true && fileSystem.Exists(normalized.Replace(@"windows\sysarm32", @"windows\system32")))
+                    {
+                        normalized = normalized.Replace(@"windows\sysarm32", @"windows\system32");
+                    }
+
                     CabinetFileInfo? cabinetFileInfo = null;
 
                     // If we end in bin, and the package is marked binary partition, this is a partition on one of the device disks, retrieve it
@@ -243,10 +251,22 @@ namespace MobilePackageGen
                         }
                         else
                         {
+                            Stream fileStream = fileSystem.OpenFile(normalized, FileMode.Open, FileAccess.Read);
+                            if (isManifest && USE_UNCOMPRESSED_MANIFEST_FILES)
+                            {
+                                // LibSxS is only supported on Windows
+                                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                                {
+                                    throw new NotImplementedException("The compression algorithm this data block uses is not currently implemented.");
+                                }
+
+                                fileStream = LibSxS.Delta.DeltaAPI.LoadManifest(fileStream);
+                            }
+
                             cabinetFileInfo = new CabinetFileInfo()
                             {
                                 FileName = packageFile.Cabpath,
-                                FileStream = fileSystem.OpenFile(normalized, FileMode.Open, FileAccess.Read),
+                                FileStream = fileStream,
                                 Attributes = fileSystem.GetAttributes(normalized) & ~FileAttributes.ReparsePoint,
                                 DateTime = fileSystem.GetLastWriteTime(normalized)
                             };
@@ -260,7 +280,6 @@ namespace MobilePackageGen
                     else
                     {
                         Logging.Log($"\rError: File not found! {normalized}\n", LoggingLevel.Error);
-                        //throw new FileNotFoundException(normalized);
                     }
                 }
             }
@@ -283,7 +302,7 @@ namespace MobilePackageGen
             TempManager.CleanupTempFiles();
         }
 
-        private static IEnumerable<IPartition> GetPartitionsWithServicing(IEnumerable<IDisk> disks)
+        private static List<IPartition> GetPartitionsWithServicing(IEnumerable<IDisk> disks)
         {
             List<IPartition> fileSystemsWithServicing = [];
 
@@ -392,107 +411,39 @@ namespace MobilePackageGen
 
                         string fileStatus = "";
 
-                        /*string newCabFile = cabFile;
-
-                        int fileIndex = 2;
-
-                        while (File.Exists(newCabFile))
-                        {
-                            string extension = Path.GetExtension(cabFile);
-                            if (!string.IsNullOrEmpty(extension))
-                            {
-                                newCabFile = $"{cabFile[..^extension.Length]} ({fileIndex}){extension}";
-                            }
-                            else
-                            {
-                                newCabFile = $"{cabFile} ({fileIndex})";
-                            }
-
-                            fileIndex++;
-                        }
-
-                        cabFile = newCabFile;*/
-
                         if (!File.Exists(cabFile))
                         {
                             IEnumerable<CabinetFileInfo> fileMappings = GetCabinetFileInfoForCbsPackage(cbs, partition, disks);
 
-                            uint oldPercentage = uint.MaxValue;
-                            uint oldFilePercentage = uint.MaxValue;
-                            string oldFileName = "";
-
                             // Cab Creation is only supported on Windows
                             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                             {
-                                if (fileMappings.Count() > 0)
+                                if (fileMappings.Any())
                                 {
                                     if (Path.GetDirectoryName(cabFile) is string directory && !Directory.Exists(directory))
                                     {
                                         Directory.CreateDirectory(directory);
                                     }
 
-                                    CabInfo cab = new(cabFile);
-                                    cab.PackFiles(null, fileMappings.Select(x => x.GetFileTuple()).ToArray(), fileMappings.Select(x => x.FileName).ToArray(), CompressionLevel.Min, (object? _, ArchiveProgressEventArgs archiveProgressEventArgs) =>
+                                    if (ContainerOSWrapperBuilder.IsWrapperPackage(cbs))
                                     {
-                                        string fileNameParsed;
-                                        if (string.IsNullOrEmpty(archiveProgressEventArgs.CurrentFileName))
-                                        {
-                                            fileNameParsed = $"Unknown ({archiveProgressEventArgs.CurrentFileNumber})";
-                                        }
-                                        else
-                                        {
-                                            fileNameParsed = archiveProgressEventArgs.CurrentFileName;
-                                        }
+                                        // This is a Wrapper package that needs to be contained in a wim.
+                                        // First index of a wim wraper package contains said cbs component
+                                        // (same content as the cab we would have generated normally
+                                        // Second index contains the whole content of the directory in
+                                        // the windows installation at the "ApplyTo" location
+                                        // Note: The ApplyTo path is relative to WINDIR (ApplyTo can be equal to
+                                        // "\Containers\Vail\BaseLayer" and the directory is in "C:\Windows\Containers\Vail\BaseLayer"
 
-                                        uint percentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileNumber * 50 / archiveProgressEventArgs.TotalFiles) + 50;
+                                        // Still build the cab for now
+                                        CabinetBuilder.BuildCab(cabFile, fileMappings, ref fileStatus);
 
-                                        if (percentage != oldPercentage)
-                                        {
-                                            oldPercentage = percentage;
-                                            string progressBarString = Logging.GetDISMLikeProgressBar(percentage);
-
-                                            Logging.Log(progressBarString, returnLine: false);
-                                        }
-
-                                        if (fileNameParsed != oldFileName)
-                                        {
-                                            Logging.Log();
-                                            Logging.Log(new string(' ', fileStatus.Length));
-                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-
-                                            oldFileName = fileNameParsed;
-
-                                            oldFilePercentage = uint.MaxValue;
-
-                                            fileStatus = $"Adding file {archiveProgressEventArgs.CurrentFileNumber + 1} of {archiveProgressEventArgs.TotalFiles} - {fileNameParsed}";
-                                            if (fileStatus.Length > Console.BufferWidth - 24 - 1)
-                                            {
-                                                fileStatus = $"{fileStatus[..(Console.BufferWidth - 24 - 4)]}...";
-                                            }
-
-                                            Logging.Log();
-                                            Logging.Log(fileStatus);
-                                            Logging.Log(Logging.GetDISMLikeProgressBar(0), returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-                                        }
-
-                                        uint filePercentage = (uint)Math.Floor((double)archiveProgressEventArgs.CurrentFileBytesProcessed * 100 / archiveProgressEventArgs.CurrentFileTotalBytes);
-
-                                        if (filePercentage != oldFilePercentage)
-                                        {
-                                            oldFilePercentage = filePercentage;
-                                            string progressBarString = Logging.GetDISMLikeProgressBar(filePercentage);
-
-                                            Logging.Log();
-                                            Logging.Log();
-                                            Logging.Log(progressBarString, returnLine: false);
-
-                                            Console.SetCursorPosition(0, Console.CursorTop - 2);
-                                        }
-                                    });
+                                        ContainerOSWrapperBuilder.BuildWrapper(cabFile, fileMappings, ref fileStatus, partition, cbs.Package.ApplyTo);
+                                    }
+                                    else
+                                    {
+                                        CabinetBuilder.BuildCab(cabFile, fileMappings, ref fileStatus);
+                                    }
                                 }
                             }
 
@@ -547,7 +498,6 @@ namespace MobilePackageGen
                     catch (Exception ex)
                     {
                         Logging.Log($"Error: CAB creation failed! {ex.Message}", LoggingLevel.Error);
-                        //throw;
                     }
                 }
             }
