@@ -255,7 +255,7 @@ namespace MobilePackageGen
                                     }
                                 }
                             }
-                            }catch(exception e){}
+                            }catch(Exception e){}
                         }
                     }
                 }
