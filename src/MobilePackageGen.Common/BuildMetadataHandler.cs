@@ -191,7 +191,7 @@ namespace MobilePackageGen
                         {
                             // PreInstalled Partition
                             // Extracted APPX, Licenses
-
+                            try{
                             string[] LicenseFiles = [.. fileSystem.GetFiles("AppData", "*.xml", SearchOption.TopDirectoryOnly)];
 
                             foreach (string LicenseFile in LicenseFiles)
@@ -255,6 +255,7 @@ namespace MobilePackageGen
                                     }
                                 }
                             }
+                            }catch(exception e){}
                         }
                     }
                 }
